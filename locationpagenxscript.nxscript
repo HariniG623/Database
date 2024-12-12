@@ -1,0 +1,257 @@
+<%
+
+// Copyright 2010 Navigator Systems Ltd. UK 
+// This file maybe freely distributed to use with a Nexus based server, providing this notice is not removed.
+
+
+const
+  cssprefix = 'nx';
+
+procedure RenderData(aQuery: TnxQuery);
+var
+	j,lastloop,curDay: integer;
+    bgcol: String;
+begin
+
+  bgcol := 'White';
+  
+    lastloop := 0;
+	j:= 0;
+	if (ServerDecode(Request('Barcode')) <> '') Then
+	Begin
+		output.writeln('<table>');
+		if aQuery.active then aQuery.first;
+		while not aQuery.eof do
+		begin
+		output.writeln('<tr><td style="font-size: 100%">Location:</td><td style="font-size: 100%">' + aQuery.fields.fields[0].asstring + '</td></tr>');
+		output.writeln('<tr><td style="font-size: 75%">Barcode:</td><td style="font-size: 75%">' + aQuery.fields.fields[2].asstring + '</td></tr>');
+		output.writeln('<tr><td style="font-size: 50%">Type:</td><td style="font-size: 50%">' + aQuery.fields.fields[1].asstring + '</td></tr>');
+		output.writeln('<tr><td style="font-size: 50%">Status:</td><td style="font-size: 50%">' + aQuery.fields.fields[3].asstring + '</td></tr>');
+		output.writeln('<tr><td style="font-size: 50%">Last Op:</td><td style="font-size: 50%">' + aQuery.fields.fields[4].asstring + '</td></tr>');
+		aQuery.next;
+		end;
+		output.writeln('</table>');
+	end;
+end;
+
+procedure ROT13(var Str: string);
+var
+  i, o: integer;
+begin
+  for i := 1 to length(Str) do
+  begin
+    o := Ord(Str[i]);
+    if (o >= Ord('A')) and (o <= Ord('Z')) then
+      Str[i] := Chr(Ord('A') + (o - Ord('A') + 13) mod 26)
+    else if (o >= Ord('a')) and (o <= Ord('z')) then
+      Str[i] := Chr(Ord('a') + (o - Ord('a') + 13) mod 26);
+  end;
+end;
+
+function HTMLEncode( const Input: String ): String;
+var
+  I: Integer;
+  Output: String;
+begin
+  Output := Input;
+  I := 1;
+  while I <= Length( Output ) do
+    if Output[ I ] = chr(39) then
+    begin
+      Delete( Output, I, 1 );
+      Insert( '&#39;', Output, I );
+      I := I + 5;
+    end
+    else 
+    if Output[ I ] = '+' then
+    begin
+      Delete( Output, I, 1 );
+      Insert( '%2B;', Output, I );
+      I := I + 3;
+    end
+    else
+    if Output[ I ] = '"' then
+    begin
+      Delete( Output, I, 1 );
+      Insert( '&quot;', Output, I );
+      I := I + 5;
+    end
+    else if Output[ I ] = '<' then
+    begin
+      Delete( Output, I, 1 );
+      Insert( '&lt;', Output, I );
+      I := I + 4;
+    end
+    else if Output[ I ] = '>' then
+    begin
+      Delete( Output, I, 1 );
+      Insert( '&gt;', Output, I );
+      I := I + 4;
+    end
+    else if Output[ I ] = '&' then
+    begin
+      Insert( '&amp;', Output, I + 1 );
+      I := I + 5;
+    end
+    else
+      Inc( I );
+  Result := Output;
+end;
+
+function daysToRetrieveCalc() : Integer;
+var
+  curDay: integer;
+  output: integer;
+begin
+  // If current day is Sunday - Wednesday it will output 3, Thursday and Friday will output 5 Saturday will output 4
+
+  
+  curDay := DayOfWeek(Date);
+  
+  if(curDay < 5) then output := 3 
+  else if (curDay < 7) then output := 5
+  else output := 4;
+  
+  Result := output;
+end;
+
+var
+  i: integer;
+  id: integer;
+  daysToRetrieve: integer;  
+  recordcount: integer;
+  mystartcount: integer; 
+  sql: string;
+  paginated_query : string;
+  myalias: string;
+  action : string;
+  problem : string;
+  mytimeout : string;
+  myresultsetsize : string;
+  myusername : string;
+  pwd : string;  
+  mypassword : string;
+  aSession: TnxSession;
+  aDB: TnxDatabase;
+  aQuery : TnxQuery;
+  AliasList: TStringList;
+  get_credentials : boolean;
+  encrypted : string;
+  paginate : boolean;
+begin
+  Server.SetVar('Refresh', '');
+  Server.SetVar('PageDisabled', 'false');
+  action := Request('NavAction');
+  encrypted := Request('Encrypted');
+  AliasList := TStringList.Create();
+  aSession:=TnxSession.Create(nil);
+  aDB:=TnxDatabase.Create(nil);
+  aQuery:=TnxQuery.Create(nil);
+  try
+    aSession.ServerEngine:=ServerEngine;
+	get_credentials := false;
+	
+	aSession.Username := 'WEBVIEWER';
+	aSession.Password := 'internalViewer1';
+	
+    try
+    aSession.Active:=true;
+	except
+	get_credentials := true;
+	end;
+	if not get_credentials then
+	begin
+    aSession.GetAliasNames(AliasList);
+    mytimeout := '10000';
+    mystartcount := Integer(1);
+
+	//
+	
+	
+	sql := 'SELECT location.LocationDescription,   Hetype.Description,   Item.Barcode, CASE WHEN Item.CommissionStatus = 0 THEN ''In Commission''     WHEN Item.CommissionStatus = 1 THEN ''1''    WHEN Item.CommissionStatus = 2 THEN ''In Repair''    WHEN Item.CommissionStatus = 3 THEN ''Decomissioned''     WHEN Item.CommissionStatus = 4 THEN ''Disposed''     WHEN Item.CommissionStatus = 5 THEN ''5''     WHEN Item.CommissionStatus = 6 THEN ''6'' END CASE_WHEN_Item_Commission,   CASE WHEN Item.LastOpType = 0 THEN ''None''    WHEN Item.LastOpType = 1 THEN ''Carnet''    WHEN Item.LastOpType = 2 THEN ''Prep Note''    WHEN Item.LastOpType = 3 THEN ''Prepped Loaned Stock''     WHEN Item.LastOpType = 4 THEN ''Prepped Subhired Stock''    WHEN Item.LastOpType = 5 THEN ''D. Note''    WHEN Item.LastOpType = 6 THEN ''Return''    WHEN Item.LastOpType = 7 THEN ''Check In''  END CASE_WHEN_OpScans_OpsType FROM Item   LEFT JOIN Hetype ON Item.Type = Hetype.Type   INNER JOIN TypeLocations ON TypeLocations.xType = Hetype.Type   INNER JOIN location ON TypeLocations.xLocation = location.LocationId WHERE Item.Barcode = '''+ServerDecode(Request('Barcode'))+'''';
+
+
+      myalias := 'EnlightenedLIVE';
+      mytimeout := '10000';
+      asession.timeout := strtoint(mytimeout);
+      problem := '';
+      paginated_query := '';
+      if not((sql = '') or (myalias = '')) then 
+        begin
+          aDB.AliasName:=myalias;
+          aDB.Session:=aSession;
+          aDB.Open;
+	      aQuery.Database := aDB;
+          aQuery.sql.text := sql;
+
+     	try
+		aQuery.open;
+
+		except
+			problem := ExceptionToString(ExceptionType, ExceptionParam);
+		end;
+
+
+		aQuery.close;
+		
+		aQuery.sql.text := sql;
+		try
+			aQuery.open;
+		except
+			problem := ExceptionToString(ExceptionType, ExceptionParam);
+		end;
+		
+		end
+		else
+		problem := 'SQL is too long for your browser.';
+  end;
+%>
+
+<html><head><title>ENL Warehouse Dashboard</title> </link><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta http-equiv="Pragma" content="no-cache" > </meta> <meta http-equiv="Expires" content="0" > </meta> <script type="text/javascript" src="dynamictable.js"></script><script type="text/javascript" src="PopupWindow.js"></script></head><body>
+
+<script type="text/javascript">
+window.onload = function(){
+  var text_input = document.getElementById ('barcode');
+  text_input.focus ();
+  text_input.select ();
+}
+</script>
+
+<!-- Write the left menu component list -->
+
+
+<!-- CSS Main Content Wrapper -->
+
+
+<!-- actual content start --> 
+
+ 
+
+ 
+<!-- Last Error Message: --> <% output.write(problem)%>
+<form action="locations.nxscript">
+  Enter Barcode:<br>
+  <input type="text"  name="barcode" value="">
+  <br>
+  <input type="submit" value="Submit">
+</form>
+
+<%
+  renderdata(aQuery);
+%>
+
+
+<!-- actual content end --> 
+
+</body>
+</html>
+
+<%
+finally
+ aQuery.free;
+ aDb.free;
+ aSession.free;
+end;
+end.
+%>
+
